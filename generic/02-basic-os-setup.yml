@@ -32,7 +32,7 @@
       when: >
         (rhc_insights is defined) or
         (rhc_release is defined) or
-        (rhc_repositories is defined) or
+        (rhc_repositories is defined)
       ansible.builtin.include_role:
         name: fedora.linux_system_roles.rhc
 
