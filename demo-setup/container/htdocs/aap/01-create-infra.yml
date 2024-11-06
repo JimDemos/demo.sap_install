@@ -89,6 +89,14 @@
         ansible_user: 'ansible'
         ansible_ssh_private_key_file: /tmp/{{ hash }}/idrsa
 
+    - name: Create Temp file with inventory for tempuse
+      ansible.builtin.copy:
+        dest: /tmp/{{ hash }}/inventory
+        mode: 0644
+        content: |
+          [controller_group]
+          controller ansible_host={{ _azure_public_ip.publicipaddresses[0].ip_address }} ansible_user=ansible ansible_ssh_private_key_file=/tmp/{{ hash }}/idrsa
+
 ##################################################################################
 - name: Configure K3S and install AWX operator
   hosts: controller_group
@@ -122,12 +130,14 @@
       ansible.builtin.package:
         name: '*'
         state: latest
+      register: _os_update
 
     - name: Check cloud type specific diskspace
       ansible.builtin.include_tasks: check_storage_{{ type }}.yml
 
     - name: Reboot RHEL
       ansible.builtin.reboot:
+      # when: _os_update.
 
     - name: Ensure host is reachable
       ansible.builtin.ping:
@@ -171,7 +181,8 @@
     - name: Install helm repository for awx-operator
       kubernetes.core.helm_repository:
         name: awx-operator
-        repo_url: https://ansible.github.io/awx-operator/
+        # repo_url: https://ansible.github.io/awx-operator/
+        repo_url: https://ansible-community.github.io/awx-operator-helm/
       tags:
         - install_op
 

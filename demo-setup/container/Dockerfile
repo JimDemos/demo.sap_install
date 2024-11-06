@@ -1,4 +1,4 @@
-FROM quay.io/mkoch-redhat/sap-ee:latest
+FROM quay.io/mkoch-redhat/sap-ee:dev
 
 LABEL maintainer="Markus Koch <mkoch@redhat.com>" 
 
@@ -15,7 +15,7 @@ RUN dnf update -y && \
 
 # Update stable release from https://gitlab.com/ansible-ssa/collection-ansible_ssa-general/-/releases
 COPY ansible_ssa-general*.tar.gz /root/ansible_ssa-general.tar.gz
-RUN /usr/local/bin/ansible-galaxy install \
+RUN /usr/local/bin/ansible-galaxy collection install \
     /root/ansible_ssa-general.tar.gz \
     community.crypto \
     kubernetes.core \

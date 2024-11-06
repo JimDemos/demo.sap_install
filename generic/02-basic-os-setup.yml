@@ -28,7 +28,7 @@
 
     - name: Ensure system is properly subscribed
       ansible.builtin.include_role:
-        name: community.sap_operations.sap_rhsm
+        name: fedora.linux_system_roles.rhc
 
     - name: Ensure storage is configured correctly
       ansible.builtin.include_role:
