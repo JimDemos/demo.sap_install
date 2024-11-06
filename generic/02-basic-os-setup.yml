@@ -14,7 +14,7 @@
 # inventory settings in AWX or Controller
 
 - name: Phase 2 - basic OS Setup
-  hosts: "{{ targethosts | d('all') }}"
+  hosts: "{{ targethosts | d('all!fileserver') }}"
   become: true
 
   tasks:
