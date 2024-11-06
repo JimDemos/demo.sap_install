@@ -14,22 +14,48 @@
 # inventory settings in AWX or Controller
 
 - name: Phase 2 - basic OS Setup
-  hosts: all
+  hosts: "{{ targethosts | d('all') }}"
   become: true
 
   tasks:
     - name: Ensure network is configured correctly
+      when: network_connections is defined
       ansible.builtin.include_role:
         name: fedora.linux_system_roles.network
 
     - name: Ensure timesync is configured correctly
+      when: (timesync_ntp_servers is defined) or (timesync_ptp_domains is defined)
       ansible.builtin.include_role:
         name: fedora.linux_system_roles.timesync
 
     - name: Ensure system is properly subscribed
+      when: >
+        (rhc_insights is defined) or
+        (rhc_release is defined) or
+        (rhc_repositories is defined) or
       ansible.builtin.include_role:
         name: fedora.linux_system_roles.rhc
 
-    - name: Ensure storage is configured correctly
-      ansible.builtin.include_role:
-        name: fedora.linux_system_roles.storage
+    - name: Configure storage
+      when: (server_def is defined)
+      block:
+        - name: Get storage pool setup from server name definition
+          ansible.builtin.set_fact:
+            storage_pools: "{{ server_def | selectattr('name', 'equalto', inventory_hostname) | sum(attribute='storage_pools', start=[]) }}"
+          when:
+            - server_def | selectattr('name', 'defined') | map(attribute='name') | list | length > 0
+            - inventory_hostname in (server_def|map(attribute='name')|list)
+
+        - name: Get storage pool setup from server group definition
+          ansible.builtin.set_fact:
+            storage_pools: "{{ server_def | selectattr('group', 'in', group_names) | sum(attribute='storage_pools', start=[]) }}"
+          when:
+            - (storage_pools is undefined) or (storage_pools| list | length == 0)
+            - server_def | selectattr('group', 'defined') | map(attribute='group') | list | length > 0
+
+        - name: Ensure storage is configured correctly
+          ansible.builtin.include_role:
+            name: fedora.linux_system_roles.storage
+          when:
+            - storage_pools is defined
+            - storage_pools | list | length > 0
