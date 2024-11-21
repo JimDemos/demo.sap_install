@@ -31,7 +31,7 @@ dependencies:
         - name: redhat.sap_install
         - name: sap.sap_operations
   python: requirements.txt
-  #system: bindep.txt
+  system: bindep.txt
 
 options:
   package_manager_path: /usr/bin/microdnf
