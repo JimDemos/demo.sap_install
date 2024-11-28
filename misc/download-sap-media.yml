@@ -55,7 +55,7 @@
     # If this task throws an error, the filelists are not defined
     - name: Define HANA download files
       ansible.builtin.set_fact:
-        hana_files: "{{ lookup('vars', 'hana2sps' + sap_hana_sps_version) }}"
+        hana_files: "{{ lookup('vars', 'hdb2sps' + sap_hana_sps_version) }}"
       when:
         - hana_files is undefined
 
