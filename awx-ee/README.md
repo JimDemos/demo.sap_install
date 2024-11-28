@@ -51,5 +51,5 @@ ansible-builder build -v 3 \
 > If you know how to build cross-platform EEs with ansible builder, feel free to contact me or create a pull request.
 
 > [NOTE]
-> the power base image awx-ee is not available publically. The RHEL version needs python3-devel defined as extra package
+> the power base image awx-ee is not available publically. The RHEL version needs extra packages
 > - 

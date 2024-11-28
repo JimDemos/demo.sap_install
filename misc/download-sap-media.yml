@@ -1,9 +1,9 @@
 ---
-- name: load fileserver
+- name: Download SAP software to fileserver
   hosts: fileserver
   become: true
-  collections:
-     - community.sap_launchpad
+  # collections:
+  #   - community.sap_launchpad
 
   ### This playbook downloads all the SAP files required for installing
   ### SAP HANA and S/4 HANA from Maintenance Planner
@@ -15,7 +15,7 @@
   #
   # optional:
   #   download_path           : Pfad in den die Software heruntergeladen wird
-  #   venv                     : virtuelles Python environment für prereqs 
+  #   venv                     : virtuelles Python environment für prereqs
   #
   # vars_prompt:
   #  - name: "suser_id"
@@ -28,21 +28,22 @@
   #    default: "{{lookup('env', 'SAP_SUPPORT_DOWNLOAD_PASSWORD')}}"
 
   vars:
-      download_path: /sap-software
-
-  vars_files: sap-dl.yml
+    download_path: /sap-software
+    sap_hana_sps_version: '06'
+    sap_s4_version: '2021'
+  vars_files: "sap-dl-{{ ansible_architecture }}.yml"
 
   tasks:
-    - name: ensure S-USER and PASSWORD are defined
+    - name: Ensure S-USER and PASSWORD are defined
       ansible.builtin.fail:
-            msg: "Please set suser_id and suser_password"
-      when: ( suser_id|trim ==''  )  or  ( suser_password|trim == '' )
+        msg: "Please set suser_id and suser_password"
+      when: (suser_id | trim == '') or (suser_password | trim == '')
       tags:
         - sap_s4_softwaredownload
         - sap_extra_download
 
-    - name: ensure prereqs are installed
-      pip:
+    - name: Ensure prereqs are installed
+      ansible.builtin.pip:
         name:
           - urllib3
           - beautifulsoup4
@@ -51,45 +52,58 @@
         state: present
         virtualenv: "{{ venv | default(omit) }}"
 
+    # If this task throws an error, the filelists are not defined
+    - name: Define HANA download files
+      ansible.builtin.set_fact:
+        hana_files: "{{ lookup('vars', 'hana2sps' + sap_hana_sps_version) }}"
+      when:
+        - hana_files is undefined
+
+    - name: Define S4 download files
+      ansible.builtin.set_fact:
+        s4fndn_files: "{{ lookup('vars', 's4fndn' + sap_s4_version) }}"
+      when:
+        - s4fndn_files is undefined
+
     - name: Ensure download directories exist
-      file:
-         path: "{{ item }}"
-         state: directory
-         mode: '0755'
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
       loop:
         - "{{ download_path }}"
-        - "{{ download_path }}/HANA2SPS06"
-        - "{{ download_path }}/S4HANA2021.FNDN"
+        - "{{ download_path + '/HANA2SPS' + sap_hana_sps_version }}"
+        - "{{ download_path + '/S4HANA' + sap_s4_version + '.FNDN' }}"
 
-    - name: download SAPCAR
+    - name: Download SAPCAR # noqa: ignore-errors
       community.sap_launchpad.software_center_download:
         suser_id: "{{ suser_id }}"
         suser_password: "{{ suser_password }}"
         softwarecenter_search_query: "{{ item }}"
         dest: "{{ download_path }}"
-        dry_run: "{{ dryrun|default(false) }}"
+        dry_run: "{{ dryrun | default(false) }}"
       loop: "{{ sapcar }}"
       ignore_errors: true
 
-    - name: download Hana Media
+    - name: Download Hana Media # noqa: ignore-errors
       community.sap_launchpad.software_center_download:
         suser_id: "{{ suser_id }}"
         suser_password: "{{ suser_password }}"
         softwarecenter_search_query: "{{ item }}"
-        dest: "{{ download_path }}/HANA2SPS06"
-        dry_run: "{{ dryrun|default(false) }}"
-      loop: "{{ hdb2sps06 }}"
+        dest: "{{ download_path }}/HANA2SPS{{ sap_hana_sps_version }}"
+        dry_run: "{{ dryrun | default(false) }}"
+      loop: "{{ hana_files }}"
       ignore_errors: true
 
-    - name: download S4 Media
+    - name: Download S4 Media # noqa: ignore-errors
       community.sap_launchpad.software_center_download:
         suser_id: "{{ suser_id }}"
         suser_password: "{{ suser_password }}"
         softwarecenter_search_query: "{{ item }}"
-        dest: "{{ download_path }}/S4HANA2021.FNDN"
+        dest: "{{ download_path }}/S4HANA{{ sap_s4_version }}.FNDN"
         deduplicate: "last"
-        dry_run: "{{ dryrun|default(false) }}"
-      loop: "{{ s4fndn2021 + swpm }}"
+        dry_run: "{{ dryrun | default(false) }}"
+      loop: "{{ s4fndn_files + swpm }}"
       ignore_errors: true
 
     - name: Link SAPCAR
@@ -99,7 +113,5 @@
         state: hard
         mode: '755'
       loop:
-        - '{{ download_path }}/S4HANA2021.FNDN/{{ sapcar | first }}'
-        - '{{ download_path }}/HANA2SPS06/{{ sapcar | first }}'
-    
-   
+        - '{{ download_path }}/S4HANA{{ sap_s4_version }}.FNDN/{{ sapcar | first }}'
+        - '{{ download_path }}/HANA2SPS{{ sap_hana_sps_version }}/{{ sapcar | first }}'
