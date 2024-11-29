@@ -3,8 +3,12 @@ version: 3
 images:
   base_image:
     name: quay.io/ansible/awx-ee:latest
-
+    # name: quay.io/centos/centos:stream9
 dependencies:
+  ansible_core:
+    package_pip: anisble-core==2.15.3
+  ansible_runner:
+    package_pip: ansible-runner
   galaxy:
     roles:
         - src: mk-ansible-roles.check_reboot
@@ -30,7 +34,7 @@ dependencies:
         - name: git+https://github.com/sap-linuxlab/community.sap_launchpad.git,dev
           type: git
   python: requirements.txt
-  # system: bindep.txt
+  system: bindep.txt
   
 options:
   package_manager_path: /usr/bin/dnf
