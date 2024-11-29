@@ -6,7 +6,7 @@ images:
     # name: quay.io/centos/centos:stream9
 dependencies:
   ansible_core:
-    package_pip: anisble-core==2.15.3
+    package_pip: anisble-core<=2.17
   ansible_runner:
     package_pip: ansible-runner
   galaxy:
