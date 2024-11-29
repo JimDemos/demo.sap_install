@@ -6,7 +6,7 @@ images:
     # name: quay.io/centos/centos:stream9
 dependencies:
   ansible_core:
-    package_pip: anisble-core<=2.17
+    package_pip: ansible-core<=2.17
   ansible_runner:
     package_pip: ansible-runner
   python_interpreter: 
@@ -37,7 +37,12 @@ dependencies:
         - name: git+https://github.com/sap-linuxlab/community.sap_launchpad.git,dev
           type: git
   python: requirements.txt
-  system: bindep.txt
+  system: 
+    - gcc
+    - gcc-c++
+    - python3.12-devel
+    - openssl
+    - openssl-devel
   
 options:
   package_manager_path: /usr/bin/dnf
