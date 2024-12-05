@@ -1,5 +1,0 @@
-gcc
-gcc-c++
-python3-devel
-openssl
-openssl-devel
