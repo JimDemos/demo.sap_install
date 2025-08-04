@@ -93,7 +93,7 @@
         sap_software_download_suser_password: "{{ suser_password }}"
         sap_software_download_directory: "{{ download_path }}/S4HANA{{ sap_s4_version }}.FNDN"
         sap_software_download_files: "{{ s4fndn_files + swpm }}"
-        sap_software_download_deduplicate: first # was last
+        sap_software_download_deduplicate: last
         sap_software_download_find_alternatives: true
 
     - name: Link SAPCAR
