@@ -42,6 +42,16 @@
         - sap_s4_softwaredownload
         - sap_extra_download
 
+    - name: Ensure prereqs are installed
+      ansible.builtin.pip:
+        name:
+          - urllib3
+          - beautifulsoup4
+          - lxml
+          - requests
+        state: present
+        virtualenv: "{{ venv | default(omit) }}"
+
     # If this task throws an error, the filelists are not defined
     - name: Define HANA download files
       ansible.builtin.set_fact:
@@ -65,33 +75,36 @@
         - "{{ download_path + '/HANA2SPS' + sap_hana_sps_version }}"
         - "{{ download_path + '/S4HANA' + sap_s4_version + '.FNDN' }}"
 
-    - name: Download SAPCAR
-      ansible.builtin.include_role:
-        name: community.sap_launchpad.sap_software_download
-      vars:
-        sap_software_download_suser_id: "{{ suser_id }}"
-        sap_software_download_suser_password: "{{ suser_password }}"
-        sap_software_download_directory: "{{ download_path }}"
-        sap_software_download_files: "{{ sapcar }}"
+    - name: Download SAPCAR # noqa: ignore-errors
+      community.sap_launchpad.software_center_download:
+        suser_id: "{{ suser_id }}"
+        suser_password: "{{ suser_password }}"
+        softwarecenter_search_query: "{{ item }}"
+        dest: "{{ download_path }}"
+        dry_run: "{{ dryrun | default(false) }}"
+      loop: "{{ sapcar }}"
+      ignore_errors: true
 
-    - name: Download Hana Media
-      ansible.builtin.include_role:
-        name: community.sap_launchpad.sap_software_download
-      vars:
-        sap_software_download_suser_id: "{{ suser_id }}"
-        sap_software_download_suser_password: "{{ suser_password }}"
-        sap_software_download_directory: "{{ download_path + '/HANA2SPS' + sap_hana_sps_version }}"
-        sap_software_download_files: "{{ hana_files }}"
+    - name: Download Hana Media # noqa: ignore-errors
+      community.sap_launchpad.software_center_download:
+        suser_id: "{{ suser_id }}"
+        suser_password: "{{ suser_password }}"
+        softwarecenter_search_query: "{{ item }}"
+        dest: "{{ download_path }}/HANA2SPS{{ sap_hana_sps_version }}"
+        dry_run: "{{ dryrun | default(false) }}"
+      loop: "{{ hana_files }}"
+      ignore_errors: true
 
-    - name: Download S4 Media
-      ansible.builtin.include_role:
-        name: community.sap_launchpad.sap_software_download
-      vars:
-        sap_software_download_suser_id: "{{ suser_id }}"
-        sap_software_download_suser_password: "{{ suser_password }}"
-        sap_software_download_directory: "{{ download_path }}/S4HANA{{ sap_s4_version }}.FNDN"
-        sap_software_download_files: "{{ s4fndn_files + swpm }}"
-        sap_software_download_deduplicate: first # was last
+    - name: Download S4 Media # noqa: ignore-errors
+      community.sap_launchpad.software_center_download:
+        suser_id: "{{ suser_id }}"
+        suser_password: "{{ suser_password }}"
+        softwarecenter_search_query: "{{ item }}"
+        dest: "{{ download_path }}/S4HANA{{ sap_s4_version }}.FNDN"
+        deduplicate: "last"
+        dry_run: "{{ dryrun | default(false) }}"
+      loop: "{{ s4fndn_files + swpm }}"
+      ignore_errors: true
 
     - name: Link SAPCAR
       ansible.builtin.file:
