@@ -43,7 +43,7 @@
     - name: Ensure S-USER and PASSWORD are defined
       ansible.builtin.fail:
         msg: "Please set suser_id and suser_password"
-      when: (sap_software_download_suser_id | trim == '') or (sap_software_download_suser_password| trim == '')
+      when: (sap_software_download_suser_id | trim == '') or (sap_software_download_suser_password | trim == '')
       tags:
         - sap_s4_softwaredownload
         - sap_extra_download
@@ -74,6 +74,7 @@
     - name: Download SAPCAR
       ansible.builtin.include_role:
         name: community.sap_launchpad.sap_software_download
+        tasks_from: download_files.yml
       vars:
         sap_software_download_directory: "{{ download_path }}"
         sap_software_download_files: "{{ sapcar }}"
@@ -81,6 +82,7 @@
     - name: Download Hana Media
       ansible.builtin.include_role:
         name: community.sap_launchpad.sap_software_download
+        tasks_from: download_files.yml
       vars:
         sap_software_download_directory: "{{ download_path + '/HANA2SPS' + sap_hana_sps_version }}"
         sap_software_download_files: "{{ hana_files }}"
@@ -88,6 +90,7 @@
     - name: Download S4 Media
       ansible.builtin.include_role:
         name: community.sap_launchpad.sap_software_download
+        tasks_from: download_files.yml
       vars:
         sap_software_download_directory: "{{ download_path }}/S4HANA{{ sap_s4_version }}.FNDN"
         sap_software_download_files: "{{ s4fndn_files + swpm }}"
