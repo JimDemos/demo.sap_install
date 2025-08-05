@@ -31,13 +31,19 @@
     download_path: /sap-software
     sap_hana_sps_version: '06'
     sap_s4_version: '2021'
+    sap_software_download_suser_id: "{{ suser_id }}"
+    sap_software_download_suser_password: "{{ suser_password }}"
+    sap_software_download_find_alternatives: true
+    sap_software_download_use_venv: false # should be installed in EE
+    sap_software_download_deduplicate: first
+
   vars_files: "sap-dl-{{ ansible_architecture }}.yml"
 
   tasks:
     - name: Ensure S-USER and PASSWORD are defined
       ansible.builtin.fail:
         msg: "Please set suser_id and suser_password"
-      when: (suser_id | trim == '') or (suser_password | trim == '')
+      when: (sap_software_download_suser_id | trim == '') or (sap_software_download_suser_password| trim == '')
       tags:
         - sap_s4_softwaredownload
         - sap_extra_download
@@ -69,32 +75,23 @@
       ansible.builtin.include_role:
         name: community.sap_launchpad.sap_software_download
       vars:
-        sap_software_download_suser_id: "{{ suser_id }}"
-        sap_software_download_suser_password: "{{ suser_password }}"
         sap_software_download_directory: "{{ download_path }}"
         sap_software_download_files: "{{ sapcar }}"
-        sap_software_download_find_alternatives: true
 
     - name: Download Hana Media
       ansible.builtin.include_role:
         name: community.sap_launchpad.sap_software_download
       vars:
-        sap_software_download_suser_id: "{{ suser_id }}"
-        sap_software_download_suser_password: "{{ suser_password }}"
         sap_software_download_directory: "{{ download_path + '/HANA2SPS' + sap_hana_sps_version }}"
         sap_software_download_files: "{{ hana_files }}"
-        sap_software_download_find_alternatives: true
 
     - name: Download S4 Media
       ansible.builtin.include_role:
         name: community.sap_launchpad.sap_software_download
       vars:
-        sap_software_download_suser_id: "{{ suser_id }}"
-        sap_software_download_suser_password: "{{ suser_password }}"
         sap_software_download_directory: "{{ download_path }}/S4HANA{{ sap_s4_version }}.FNDN"
         sap_software_download_files: "{{ s4fndn_files + swpm }}"
-        sap_software_download_deduplicate: last
-        sap_software_download_find_alternatives: true
+        sap_software_download_deduplicate: first
 
     - name: Link SAPCAR
       ansible.builtin.file:
