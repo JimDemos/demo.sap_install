@@ -34,7 +34,7 @@
     sap_software_download_suser_id: "{{ suser_id }}"
     sap_software_download_suser_password: "{{ suser_password }}"
     sap_software_download_find_alternatives: true
-    sap_software_download_use_venv: false # should be installed in EE
+    sap_software_download_use_venv: true # should be installed in EE
     sap_software_download_deduplicate: first
 
   vars_files: "sap-dl-{{ ansible_architecture }}.yml"
