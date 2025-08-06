@@ -26,9 +26,9 @@
     - name: Configure HANA System Replication
       ansible.builtin.include_role:
         name: community.sap_install.sap_ha_install_hana_hsr
-    
+
     # Name from Azure Credentials
-    - name: set fence device
+    - name: Set fence device
       ansible.builtin.set_fact:
         sap_pacemaker_stonith_devices:
           - name: "fence_name_for_azure"
@@ -44,45 +44,52 @@
     - name: Create Azure basic internal loadbalancer
       azure.azcollection.azure_rm_loadbalancer:
         resource_group: "{{ az_rg }}"
-        name: "{{  az_rg + '_LB'}}"
+        name: "{{  az_rg + '_LB' }}"
         sku: "Basic"
-        fontend_ip_configuration:
-            name: "{{  az_rg + '_LB_FE' }}"
+        frontend_ip_configurations:
+          - name: "{{  az_rg + '_LB_FE' }}"
             private_ip_allocation_method: "Dynamic"
             subnet: "{{ az_subnet }}"
         backend_address_pools:
-            name: "{{ az_rg + '_LB_BE }}"
+          - name: "{{ az_rg + '_LB_BE }}"
         probes:
-            - name: "{{  az_rg + '_probe' }}"
-              port: 61000
-              protocol: "Tcp"
-        register: lb
-        
-      # Internal loadbalancer, Basic SKU, Dynamic IP adress assignment
-      - name: Associate VMs with backend pool
-        azure_rm_networkinterface:
-          resource_group: "{{ az_rg }}"
-          name: "{{ vm }}"
-          virtual_network_name: myvnet
-          subnet_name: mysubnet
-          # enable_accelerated_networking: true
-          ip_configurations:
-            - name: myipconfig
-              load_balancer_backend_address_pools:
-                - id: "{{ lb.backend_address_pools[0].id }}"
-        with_items:
-          - "{{ vm1_name }}"
-          - "{{ vm2_name }}"
-          
-      - name: Create Backend Adresspool 
-        azure_rm_backend_adress:
-          resource_group: "{{ resource_group }}"
-          name: "{{ sb_name }}-backend-url"
-          type: Microsoft.Web/sites
-          ip_address: 10.0.0.5
-          location: eastus
-          priority: 1
-          weight: 3
+          - name: "{{  az_rg + '_probe' }}"
+            port: 61000
+            protocol: "Tcp"
+      register: lb
+
+    - name: Associate VMs with backend pool
+      azure.azcollection.azure_rm_networkinterface:
+        resource_group: "{{ az_rg }}"
+        name: "{{ vm }}"
+        virtual_network_name: myvnet
+        subnet_name: mysubnet
+        # enable_accelerated_networking: true
+        ip_configurations:
+          - name: myipconfig
+            load_balancer_backend_address_pools:
+              - id: "{{ lb.backend_address_pools[0].id }}"
+      with_items:
+        - "{{ vm1_name }}"
+        - "{{ vm2_name }}"
+
+    - name: Create Load Balancer Rules
+      azure.azcollection.azure_rm_loadbalancer:
+        resource_group: "{{ az_rg }}"
+        name: "{{  az_rg + '_LB' }}"
+        sku: "Basic"
+        load_balancer_rules:
+          - name: "{{ az_rg + '_LB_rule' }}"
+            frontend_ip_configuration_name: "{{  az_rg + '_LB_FE' }}"
+            backend_address_pool_name: "{{ az_rg + '_LB_BE }}"
+            probe_name: "{{  az_rg + '_probe' }}"
+            protocol: "Tcp"
+            frontend_port: 30013
+            backend_port: 30013
+        ip_address: 10.0.0.5
+        location: eastus
+        priority: 1
+        weight: 3
         ingress:
           - name: HTTP
             protocol: Tcp
@@ -98,27 +105,20 @@
             priority: 1
             direction: Inbound
             source: 192.0.2.0/24
-      
-      - name: Web-Folders
+            frontend_port: 30013
+            backend_port: 30013
+    # Probe TCP/61000
+    - name: Create Azure health probe
+      azure.azcollection.azure_rm_loadbalancer:
+        resource_group: "{{ resource_group }}"
+        name: "{{ az_rg + '_LB' }}"
+        probes:
+          - name: "{{ az_rg + '_probe' }}"
         protocol: Tcp
-        frontend_ip_configuration:
-          resource_group: "{{ resource_group }}"
-          name: "{{ sb_name }}"
-      - resource_id
-
-      # Probe TCP/61000
-      - name: Create Azure health probe
-        azure_rm_healthmonitor:
-          resource_group: "{{ resource_group }}"
-          name: "{{ sb_name }}-health"
+        port: 61000
+        interval_in_seconds: 5
+        number_of_probes: 2
         health_check:
-          - name: HTTP
-            protocol: TCP
-            target_port: 61000
-            action: Allow
-            priority: 1
-            direction: Inbound
-            source: 192.0.2.0/24
           - name: HTTP
             protocol: TCP
             target_port: 81
@@ -128,35 +128,86 @@
             source: 192.0.2.0
           - name: Nodes
             protocol: TCP
-            target_port: 27
+            destination_port: 27
             action: Allow
-            priority: 1
-            direction: NodePort
-      - name: Check severity
-            name: Ensure to useMode for the API Login type
-            applicationSubType: GitHub
-            operation: GET_MODE
-      - name: Get Controller info
+            priority: 2
+            direction: Inbound
+            source: 192.0.2.0/24
+
+    - name: Check severity
+      azure.azcollection.azure_rm_monitorlogprofile:
+        resource_group: "{{ resource_group }}"
+        name: "{{ sb_name }}-severity-check"
+        scopes:
+          - "/subscriptions/{{ ansible_subscription_id }}/resourceGroups/{{ resource_group }}"
+        description: "Activity log alert for severity check"
+        enabled: true
+        condition:
+          all_of:
+            - field: "category"
+              equals: "Administrative"
+            - field: "level"
+              equals: "Error"
+        actions:
+          - action_group_id: "/subscriptions/{{ ansible_subscription_id }}/resourceGroups/{{ resource_group }}/providers/microsoft.insights/actionGroups/default"
+        operation: GET_MODE
+
+    - name: Get Controller info
+      azure.azcollection.azure_rm_resource_info:
         provider:
           mode: console
       register: result
-      - name: Assert result
+
+    - name: Assert result
+      ansible.builtin.assert:
+        that:
+          - result is defined
         fail_msg: "Please logout:"
-    
-      - name: Create Azure loadbalancer rule
-        application_rule:
-          loadbalancer_rule_id: "{{ result.loadbalancer.id }}"
-          rule_id: "{{ result.loadbalancer.id }}"
-          rule_desc: azure-sso-allow-microsoft-ds
-          cookie_based_affinity: enabled
-          name: "{{ sb_name }}"q
-        statement:
-          id: "{{ result.loadbalancer.id }}"
+
+    - name: Create Azure loadbalancer rule
+      azure.azcollection.azure_rm_loadbalancer:
+        resource_group: "{{ resource_group }}"
+        name: "{{ sb_name }}-lb"
+        frontend_ip_configurations:
+          - name: "{{ sb_name }}-frontend"
+            public_ip_address: "{{ sb_name }}-pip"
+        backend_address_pools:
+          - name: "{{ sb_name }}-pool"
+        load_balancing_rules:
+          - name: azure-sso-allow-microsoft-ds
+            frontend_ip_configuration: "{{ sb_name }}-frontend"
+            backend_address_pool: "{{ sb_name }}-pool"
+            protocol: TCP
+            frontend_port: 30015
+            backend_port: 30015
+            enable_floating_ip: true
+            idle_timeout_in_minutes: 30
+        probes:
+          - name: "{{ sb_name }}-probe"
+            protocol: TCP
+            port: 62503
+            interval_in_seconds: 5
+            number_of_probes: 2
       when: result.loadbalancer.id is defined
-     
-      - name: Add Loadbalnacer pool to VM NIC
 
-      - name: Configure HANA system replication
-        include_role: community.sap_install.sap_ha_install_hana_hsr
+    - name: Add Loadbalancer pool to VM NIC
+      azure.azcollection.azure_rm_networkinterface:
+        name: "{{ item }}-nic"
+        resource_group: "{{ resource_group }}"
+        virtual_network: "{{ vnet_name }}"
+        subnet: "{{ subnet_name }}"
+        ip_configurations:
+          - name: ipconfig1
+            primary: true
+            load_balancer_backend_address_pools:
+              - "{{ result.loadbalancer.id }}/backendAddressPools/{{ sb_name }}-pool"
+      loop: "{{ groups['hana_nodes'] }}"
+      when: result.loadbalancer.id is defined
 
-      - name: - community.sap_install.sap_ha_pacemaker_cluster
+    - name: Configure HANA system replication
+      ansible.builtin.include_role:
+        name: community.sap_install.sap_ha_install_hana_hsr
+
+    - name: Configure Pacemaker cluster
+      ansible.builtin.include_role:
+        name: community.sap_install.sap_ha_pacemaker_cluster
