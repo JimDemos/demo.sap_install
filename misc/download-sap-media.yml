@@ -36,6 +36,7 @@
     sap_software_download_find_alternatives: true
     sap_software_download_use_venv: true # should be installed in EE
     sap_software_download_deduplicate: first
+    sap_software_download_validate_checksum: true
 
   vars_files: "sap-dl-{{ ansible_architecture }}.yml"
 
