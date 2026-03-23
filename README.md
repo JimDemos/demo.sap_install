@@ -5,9 +5,15 @@
 
 This repository contains comprehensive demonstration playbooks showcasing the [`community.sap_install`](https://galaxy.ansible.com/community/sap_install) Ansible collection for automated SAP system deployments. These examples demonstrate enterprise-grade SAP automation using [AWX](https://github.com/ansible/awx) or [Red Hat Ansible Automation Platform](https://www.ansible.com/products/controller).
 
+### Maintenance and execution environments
+
+- **Tested path**: The playbooks under [`generic/`](generic/) are the maintained, functionally tested baseline for SAP installation demos.
+- **Needs validation**: The [Azure](#azure), [VMware](#vmware), [Google Cloud](#google-cloud-platform), and [PowerVC](#powervc-ibm-power-systems) directories are **not** regularly tested against current hypervisor/cloud APIs, collections, and OS images. Expect breakage and extra tuning before they work in your environment.
+- **Execution environments (AWX / AAP)**: Container images and build definitions for SAP automation live in the separate project **[sap-linuxlab/ansible.execution-environment](https://github.com/sap-linuxlab/ansible.execution-environment)**. This repo no longer ships an `awx-ee/` tree.
+
 ## 🚀 Quick Start
 
-1. **Choose your platform**: [Azure](#azure) | [VMware](#vmware) | [Google Cloud](#google-cloud) | [PowerVC](#powervc)
+1. **Choose your platform** (recommended: start with [Generic](#generic-templates)): [Generic](#generic-templates) | [Azure](#azure) | [VMware](#vmware) | [Google Cloud](#google-cloud-platform) | [PowerVC](#powervc-ibm-power-systems)
 2. **Deploy infrastructure**: Run the `01-server-provisioning-*.yml` playbook for your platform
 3. **Configure systems**: Execute `02-basic-os-setup.yml` for OS preparation
 4. **Install SAP**: Run the appropriate SAP installation playbooks
@@ -30,11 +36,11 @@ Phase 1: Infrastructure → Phase 2: OS Setup → Phase 3: SAP Prep → Phase 4:
 ## 🌟 Key Features
 
 ### ✅ **Multi-Platform Support**
-- **Azure**: Complete ARM template integration with load balancers and availability sets
-- **VMware vSphere**: Full lifecycle management with vCenter integration
-- **Google Cloud Platform**: Storage bucket integration and managed services
-- **PowerVC (IBM Power)**: Specialized Power Systems support with unique configurations
-- **Generic Templates**: Adaptable templates for custom platforms
+- **Generic templates** ([`generic/`](generic/)): Platform-agnostic playbooks — **supported and tested** baseline
+- **Azure**: Example ARM / cloud integration (not verified out of the box; see note above)
+- **VMware vSphere**: Example vCenter automation (not verified out of the box; see note above)
+- **Google Cloud Platform**: Example GCP automation (not verified out of the box; see note above)
+- **PowerVC (IBM Power)**: Example PowerVC automation (not verified out of the box; see note above)
 
 ### ✅ **SAP Lifecycle Automation**
 - **SAP HANA**: Single-node and clustered installations with System Replication
@@ -43,7 +49,7 @@ Phase 1: Infrastructure → Phase 2: OS Setup → Phase 3: SAP Prep → Phase 4:
 - **Software Management**: Automated download and deployment from SAP Launchpad
 
 ### ✅ **Enterprise Integration**
-- **AWX/AAP Integration**: Execution environments and job templates
+- **AWX/AAP Integration**: Job templates and demos; execution environment images from [sap-linuxlab/ansible.execution-environment](https://github.com/sap-linuxlab/ansible.execution-environment)
 - **Red Hat Satellite**: Automated subscription and repository management
 - **Container Support**: Podman-based execution environments
 - **CI/CD Ready**: Pre-commit hooks, linting, and quality gates
@@ -57,7 +63,6 @@ demo.sap_install/
 ├── google/                     # Google Cloud Platform deployments
 ├── powervc/                    # IBM PowerVC for Power Systems
 ├── generic/                    # Platform-agnostic templates
-├── awx-ee/                     # Ansible execution environments
 ├── docs/                       # GitHub Pages documentation
 ├── demo-setup/                 # AAP/AWX configuration examples
 ├── tools/                      # Utility scripts and helpers
@@ -67,7 +72,22 @@ demo.sap_install/
 
 ## 🔧 Platform-Specific Guides
 
+### Generic templates
+
+Recommended starting point: platform-agnostic playbooks under [`generic/`](generic/). These are the **maintained and tested** path (provision hosts yourself or use `01-server-provisioning.yml` as a template, then run OS and SAP steps):
+
+```bash
+ansible-playbook generic/02-basic-os-setup.yml
+ansible-playbook generic/03-A-sap-hana-prepare.yml
+ansible-playbook generic/03-B-sap-hana-install.yml
+```
+
+**Features**: Works with any inventory; minimal cloud coupling; aligns with current `community.sap_install` usage in this repo.
+
 ### Azure
+
+> **Status**: Not regularly regression-tested. Modules, APIs, and variables may need updates before this works in your subscription.
+
 Deploy SAP on Microsoft Azure with integrated load balancing and availability zones:
 
 ```bash
@@ -84,6 +104,9 @@ ansible-playbook azure/03-CD-sap-hana-cluster.yml
 **Features**: ARM templates, Azure Load Balancer, Availability Sets, Managed Disks
 
 ### VMware
+
+> **Status**: Not regularly regression-tested. Validate against your vCenter version, VM templates, and storage/network layout.
+
 Enterprise VMware vSphere deployment with full lifecycle management:
 
 ```bash
@@ -97,6 +120,9 @@ ansible-playbook vmware/03-B-sap-hana-install.yml
 **Features**: vCenter integration, DRS/HA clusters, Storage vMotion, Template management
 
 ### Google Cloud Platform
+
+> **Status**: Not regularly regression-tested. Expect to adjust playbooks, credentials, and cloud resources for current GCP APIs and images.
+
 Leverage Google Cloud managed services and storage buckets:
 
 ```bash
@@ -108,6 +134,9 @@ ansible-playbook google/03-B-sap-hana-install-from-storage-bucket.yml
 **Features**: Cloud Storage integration, Managed Instance Groups, Load Balancing
 
 ### PowerVC (IBM Power Systems)
+
+> **Status**: Not regularly regression-tested. Validate against your PowerVC version, storage layout, and RHEL for SAP images.
+
 Specialized deployment for IBM Power Systems with PowerVC:
 
 ```bash
@@ -134,11 +163,11 @@ ansible-playbook powervc/03-B-sap-hana-install.yml
 
 ### Installation
 ```bash
-# Install required collections
-ansible-galaxy collection install -r awx-ee/requirements.yml
+# Install the SAP installation collection (minimum for the generic playbooks)
+ansible-galaxy collection install community.sap_install
 
-# Install Python dependencies
-pip install -r awx-ee/requirements.txt
+# Python extras for cloud or special modules: align with your EE or see
+# https://github.com/sap-linuxlab/ansible.execution-environment
 ```
 
 ## 🎯 Common Use Cases
@@ -152,38 +181,32 @@ ansible-playbook generic/03-A-sap-hana-prepare.yml \
 ```
 
 ### 2. **Production Cluster**
-High-availability SAP deployment:
+High-availability SAP deployment (example uses the tested `generic/` tree; Azure-specific cluster playbooks exist but are not regularly validated):
 ```bash
-ansible-playbook azure/03-CD-sap-hana-cluster.yml \
+ansible-playbook generic/03-CD-sap-hana-cluster.yml \
   -e cluster_setup=true \
   -e sap_ha_install_pacemaker=true
 ```
 
 ### 3. **S/4HANA Migration**
-Complete application layer deployment:
+Complete application layer deployment (uses the tested `generic/` playbook; a `vmware/` variant exists but is not regularly validated):
 ```bash
-ansible-playbook vmware/04-B-S4-deployment.yml \
+ansible-playbook generic/04-B-S4-deployment.yml \
   -e sap_swpm_product_catalog_id="NW_ABAP_OneHost:S4HANA2023.CORE.HDB.ABAP"
 ```
 
 ## 🛠️ Execution Environments
 
-Pre-built container environments for consistent execution:
+SAP-focused **Ansible Execution Environments** (container images for AWX, AAP, and `ansible-navigator`) are maintained in **[sap-linuxlab/ansible.execution-environment](https://github.com/sap-linuxlab/ansible.execution-environment)**.
+
+Use that repository to build or pull images, then reference them in AWX/AAP or locally, for example:
 
 ```bash
-# Build custom execution environment
-cd awx-ee/
-ansible-builder build --tag my-sap-ee:latest
-
-# Run with ansible-navigator
-ansible-navigator run azure/01-server-provisioning-azure.yml \
-  --execution-environment-image my-sap-ee:latest
+ansible-navigator run generic/02-basic-os-setup.yml \
+  --execution-environment-image <your-sap-ee-image:tag>
 ```
 
-**Available Environments**:
-- `execution-environment.yml`: Galaxy collections only
-- `execution-environment-rh.yml`: Red Hat Certified Content
-- `execution-environment-experimental.yml`: Latest development versions
+Historical `awx-ee/` definitions were removed from this demo repository in favor of the centralized SAP LinuxLab project.
 
 ## 📚 Documentation & Examples
 
