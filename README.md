@@ -9,7 +9,7 @@ This repository contains comprehensive demonstration playbooks showcasing the [`
 
 - **Tested path**: The playbooks under [`generic/`](generic/) are the maintained, functionally tested baseline for SAP installation demos.
 - **Needs validation**: The [Azure](#azure), [VMware](#vmware), [Google Cloud](#google-cloud-platform), and [PowerVC](#powervc-ibm-power-systems) directories are **not** regularly tested against current hypervisor/cloud APIs, collections, and OS images. Expect breakage and extra tuning before they work in your environment.
-- **Execution environments (AWX / AAP)**: Container images and build definitions for SAP automation live in the separate project **[sap-linuxlab/ansible.execution-environment](https://github.com/sap-linuxlab/ansible.execution-environment)**. This repo no longer ships an `awx-ee/` tree.
+- **Execution environments (AWX / AAP)**: Container images and build definitions for SAP automation live in the separate project **[sap-linuxlab/ansible.executionenvironment](https://github.com/sap-linuxlab/ansible.executionenvironment)**. This repo no longer ships an `awx-ee/` tree.
 
 ## 🚀 Quick Start
 
