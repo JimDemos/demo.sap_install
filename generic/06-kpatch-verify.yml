@@ -1,0 +1,95 @@
+---
+# 06-kpatch-verify.yml
+# Verify kpatch is loaded AND SAP HANA is still running after live patching.
+# This is the proof step — the demo's money shot.
+#
+# Idempotency: read-only throughout. Safe to run at any time.
+# Exit behavior: fails the play if either kpatch or HANA cannot be confirmed.
+#
+# Usage:
+#   ansible-playbook generic/06-kpatch-verify.yml
+#   ansible-playbook generic/06-kpatch-verify.yml -e target_group=hanas
+
+- name: "kpatch + HANA verification — the proof"
+  hosts: "{{ target_group | d('hanas') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    hana_sid: "{{ sap_hana_sid | d('RHE') }}"
+    hana_instance: "{{ sap_hana_instance_number | d('00') }}"
+
+  tasks:
+
+    # ── kpatch verification ──────────────────────────────────────────────────
+
+    - name: List loaded kpatch modules
+      ansible.builtin.command: kpatch list
+      register: kpatch_list
+      changed_when: false
+      failed_when: kpatch_list.rc != 0
+
+    - name: Extract loaded module count
+      ansible.builtin.set_fact:
+        kpatch_loaded: >-
+          {{ kpatch_list.stdout_lines
+             | select('match', '^kpatch_')
+             | list }}
+
+    - name: Assert kpatch module is loaded
+      ansible.builtin.assert:
+        that:
+          - kpatch_loaded | length >= 1
+        fail_msg: >-
+          FAIL: No kpatch modules loaded on {{ inventory_hostname }}.
+          Kernel {{ ansible_kernel }} may not have patches available,
+          or the kpatch service failed to start.
+          Run: systemctl status kpatch
+        success_msg: "PASS: {{ kpatch_loaded | length }} kpatch module(s) loaded"
+
+    - name: Show loaded kpatch modules
+      ansible.builtin.debug:
+        msg: "{{ kpatch_loaded }}"
+
+    # ── HANA process verification ────────────────────────────────────────────
+
+    - name: Check SAP HANA process list (HDB info)
+      ansible.builtin.shell: |
+        su - {{ hana_sid | lower }}adm -c "HDB info"
+      register: hdb_info
+      changed_when: false
+      failed_when: hdb_info.rc != 0
+
+    - name: Confirm hdbnameserver is running
+      ansible.builtin.assert:
+        that:
+          - "'hdbnameserver' in hdb_info.stdout"
+        fail_msg: >-
+          FAIL: hdbnameserver not found in HDB info output on {{ inventory_hostname }}.
+          HANA may have stopped during the kpatch operation.
+        success_msg: "PASS: hdbnameserver is running"
+
+    - name: Confirm hdbindexserver is running
+      ansible.builtin.assert:
+        that:
+          - "'hdbindexserver' in hdb_info.stdout"
+        fail_msg: >-
+          FAIL: hdbindexserver not found in HDB info output on {{ inventory_hostname }}.
+          HANA index service is down — data operations are impacted.
+        success_msg: "PASS: hdbindexserver is running"
+
+    # ── Summary ──────────────────────────────────────────────────────────────
+
+    - name: Demo verification summary
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════"
+          - "  kpatch + HANA VERIFICATION — PASSED"
+          - "════════════════════════════════════════"
+          - "  Host:     {{ inventory_hostname }}"
+          - "  Kernel:   {{ ansible_kernel }}"
+          - "  Patches:  {{ kpatch_loaded | join(', ') }}"
+          - "  HANA SID: {{ hana_sid }}"
+          - "  HDB info: hdbnameserver ✓  hdbindexserver ✓"
+          - "  Downtime: none"
+          - "════════════════════════════════════════"

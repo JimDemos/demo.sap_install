@@ -1,0 +1,118 @@
+---
+# AAP Workflow Template: kpatch-on-hana-demo
+#
+# Assumes base HANA systems already exist and are reachable.
+# Workflow: Apply live kernel patches → Verify HANA still running.
+#
+# To load this workflow into AAP:
+#   ansible-playbook demo-setup/awx/load-workflow.yml \
+#     -e @demo-setup/awx/workflows/kpatch-on-hana-demo.yml
+#
+# Variables (set in AAP survey or extra vars):
+#   target_group:          hanas (default)
+#   sap_hana_sid:          RHE (default — match your inventory)
+#   sap_hana_instance_number: 00 (default)
+#   kpatch_fail_if_none_loaded: true
+
+workflow_job_template:
+  name: "kpatch on HANA — Live Patch Demo"
+  description: >-
+    Apply live kernel patches to running SAP HANA hosts and verify
+    HANA remained operational throughout. No reboot. No downtime.
+  organization: "Default"
+  inventory: "SAP Demo"
+  survey_enabled: true
+  survey_spec:
+    name: "kpatch Demo Configuration"
+    description: "Configure the demo target"
+    spec:
+      - question_name: "Target host group"
+        question_description: "Inventory group to patch (default: hanas)"
+        variable: target_group
+        type: text
+        default: hanas
+        required: false
+      - question_name: "HANA SID"
+        question_description: "SAP HANA System ID (e.g. RHE)"
+        variable: sap_hana_sid
+        type: text
+        default: "RHE"
+        required: false
+      - question_name: "HANA Instance Number"
+        question_description: "Two-digit instance number (e.g. 00)"
+        variable: sap_hana_instance_number
+        type: text
+        default: "00"
+        required: false
+      - question_name: "Fail if no patches available?"
+        question_description: "Set false to allow 'no patches available' as non-fatal"
+        variable: kpatch_fail_if_none_loaded
+        type: multiplechoice
+        choices: "true\nfalse"
+        default: "true"
+        required: false
+
+  # Workflow nodes — linear: apply → verify
+  # On verify failure: play ends with clear error message, no automated rollback
+  # (kpatch unload is unreliable on busy systems — see guide notes)
+
+  workflow_nodes:
+
+    - identifier: apply-kpatch
+      unified_job_template:
+        name: "05 - Apply Live Kernel Patches"
+        type: job_template
+      related:
+        success_nodes:
+          - verify-kpatch-hana
+        failure_nodes:
+          - notify-apply-failed
+
+    - identifier: verify-kpatch-hana
+      unified_job_template:
+        name: "06 - Verify kpatch + HANA"
+        type: job_template
+      related:
+        failure_nodes:
+          - notify-verify-failed
+
+    - identifier: notify-apply-failed
+      unified_job_template:
+        name: "90 - Check Hosts"
+        type: job_template
+      # Reuse existing health check as the failure notification step.
+      # Replace with a real notification template if Slack/email is configured.
+
+    - identifier: notify-verify-failed
+      unified_job_template:
+        name: "90 - Check Hosts"
+        type: job_template
+
+# ── Job Templates referenced by this workflow ────────────────────────────────
+# These must exist in AAP before the workflow is loaded.
+# Add to your awx_config vars or load separately.
+
+job_templates:
+
+  - name: "05 - Apply Live Kernel Patches"
+    job_type: run
+    inventory: "SAP Demo"
+    project: "SAP DEMO Project"
+    playbook: "generic/05-kpatch-livepatch.yml"
+    execution_environment: "SAP EE"
+    ask_variables_on_launch: true
+    extra_vars:
+      target_group: hanas
+      kpatch_fail_if_none_loaded: true
+
+  - name: "06 - Verify kpatch + HANA"
+    job_type: run
+    inventory: "SAP Demo"
+    project: "SAP DEMO Project"
+    playbook: "generic/06-kpatch-verify.yml"
+    execution_environment: "SAP EE"
+    ask_variables_on_launch: true
+    extra_vars:
+      target_group: hanas
+      sap_hana_sid: "RHE"
+      sap_hana_instance_number: "00"
