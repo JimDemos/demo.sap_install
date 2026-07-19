@@ -1,0 +1,129 @@
+---
+# 05-kpatch-livepatch.yml
+# Apply live kernel patches to running SAP HANA hosts without downtime.
+#
+# Idempotency contract:
+#   - Safe to run repeatedly on the same host.
+#   - Will report 'changed' only when the patch state actually changes.
+#   - Will never restart or interrupt SAP workloads.
+#   - Will not reinstall packages already present.
+#   - Will not reload patches already loaded.
+#
+# Requirements:
+#   - RHEL 8.6+ or RHEL 9.x
+#   - Red Hat subscription with Extended Update Support (EUS) or kpatch entitlement
+#   - Hosts must be in the 'hanas' inventory group (or override with -e target_group=<group>)
+#
+# Usage:
+#   ansible-playbook generic/05-kpatch-livepatch.yml
+#   ansible-playbook generic/05-kpatch-livepatch.yml -e target_group=s4hanas
+#   ansible-playbook generic/05-kpatch-livepatch.yml --check   # dry-run
+
+- name: "kpatch live kernel patching — SAP hosts"
+  hosts: "{{ target_group | d('hanas') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    kpatch_fail_if_none_loaded: true   # set false to allow 'no patches available' as non-fatal
+
+  pre_tasks:
+
+    - name: Assert RHEL 8 or 9
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "RedHat"
+          - ansible_distribution_major_version in ["8", "9"]
+        fail_msg: "kpatch live patching is supported on RHEL 8/9 only. Found: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        success_msg: "RHEL {{ ansible_distribution_version }} — supported"
+
+  tasks:
+
+    # ── Package install ──────────────────────────────────────────────────────
+
+    - name: Install kpatch and kpatch-dnf plugin
+      ansible.builtin.dnf:
+        name:
+          - kpatch
+          - kpatch-dnf
+        state: present
+      # dnf state:present is idempotent — no change if already installed
+
+    # ── Capture state before ─────────────────────────────────────────────────
+
+    - name: Get currently loaded patch modules (before)
+      ansible.builtin.command: kpatch list
+      register: kpatch_before
+      changed_when: false
+      failed_when: kpatch_before.rc not in [0]
+
+    - name: Show patch state before apply
+      ansible.builtin.debug:
+        msg: "{{ kpatch_before.stdout_lines }}"
+
+    # ── Apply patches ─────────────────────────────────────────────────────────
+
+    - name: Apply available live patches via kpatch-dnf
+      ansible.builtin.command: dnf kpatch auto -y
+      register: kpatch_apply
+      # Report changed only when dnf actually installed something new.
+      # "Nothing to do" and "already applied" both = no change.
+      changed_when: >
+        'Installing' in kpatch_apply.stdout or
+        'Upgrading' in kpatch_apply.stdout
+      failed_when: kpatch_apply.rc not in [0]
+
+    # ── Service management ───────────────────────────────────────────────────
+
+    - name: Enable and start kpatch service
+      ansible.builtin.systemd:
+        name: kpatch
+        enabled: true
+        state: started
+      # systemd module is idempotent — no-op if already enabled and running
+
+    # ── Capture state after ──────────────────────────────────────────────────
+
+    - name: Get currently loaded patch modules (after)
+      ansible.builtin.command: kpatch list
+      register: kpatch_after
+      changed_when: false
+      failed_when: kpatch_after.rc not in [0]
+
+    - name: Show patch state after apply
+      ansible.builtin.debug:
+        msg: "{{ kpatch_after.stdout_lines }}"
+
+    # ── Verify ───────────────────────────────────────────────────────────────
+
+    - name: Count loaded patch modules
+      ansible.builtin.set_fact:
+        kpatch_modules_loaded: >-
+          {{ kpatch_after.stdout_lines
+             | select('match', '^kpatch_')
+             | list
+             | length }}
+
+    - name: Assert at least one patch module is loaded
+      ansible.builtin.assert:
+        that:
+          - kpatch_modules_loaded | int >= 1
+        fail_msg: >-
+          No kpatch modules loaded after apply.
+          This may mean no patches are available for kernel {{ ansible_kernel }},
+          or the kpatch repository is not enabled for this host.
+          Run: subscription-manager repos --list-enabled | grep kpatch
+        success_msg: "{{ kpatch_modules_loaded }} kpatch module(s) loaded — kernel is live-patched"
+      when: kpatch_fail_if_none_loaded | bool
+
+    # ── Report ───────────────────────────────────────────────────────────────
+
+    - name: Live patch summary
+      ansible.builtin.debug:
+        msg:
+          - "Host:            {{ inventory_hostname }}"
+          - "Kernel:          {{ ansible_kernel }}"
+          - "Modules loaded:  {{ kpatch_modules_loaded }}"
+          - "DNF action:      {{ 'patches applied' if kpatch_apply.changed else 'already current' }}"
+          - "Service:         kpatch enabled and running"
+          - "SAP disruption:  none"
