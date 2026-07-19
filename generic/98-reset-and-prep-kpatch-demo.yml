@@ -1,0 +1,185 @@
+---
+# 98-reset-and-prep-kpatch-demo.yml
+#
+# Resets the SAP landscape and prepares for the kpatch demo:
+#   1. Switches subscription from demo Satellite to Red Hat CDN
+#   2. Uninstalls HANA from all hana hosts
+#   3. Uninstalls S/4HANA from all s4hana hosts
+#   4. Installs kernel 5.14.0-570.39.1.el9_6 on hana hosts (has kpatch coverage)
+#   5. Sets that kernel as grub default and reboots
+#
+# After this playbook, hana hosts boot into a kernel that has published
+# kpatch-patch RPMs. Run sub03-A then sub03-B to reinstall HANA, then
+# run 05-kpatch-livepatch.yml to demonstrate live patching.
+#
+# Usage:
+#   ansible-playbook generic/98-reset-and-prep-kpatch-demo.yml
+#   ansible-playbook generic/98-reset-and-prep-kpatch-demo.yml \
+#     -e sap_hana_sid=RHE -e sap_nw_sid=S4H
+
+- name: "Fix subscription — switch all SAP hosts to Red Hat CDN"
+  hosts: "{{ group_hana | d('hanas') }}:{{ group_nw | d('s4hanas') }}"
+  become: true
+  gather_facts: false
+
+  vars:
+    kpatch_target_kernel: "5.14.0-570.39.1.el9_6"
+
+  tasks:
+
+    - name: Point subscription-manager at Red Hat CDN
+      ansible.builtin.command: >
+        subscription-manager config
+          --server.hostname=subscription.rhsm.redhat.com
+          --server.port=443
+          --server.prefix=/subscription
+          --rhsm.baseurl=https://cdn.redhat.com
+      changed_when: true
+
+    - name: Refresh subscription data from CDN
+      ansible.builtin.command: subscription-manager refresh
+      changed_when: true
+
+    - name: Enable baseos repo
+      community.general.rhsm_repository:
+        name: rhel-9-for-x86_64-baseos-rpms
+        state: enabled
+
+    - name: Clean dnf metadata cache
+      ansible.builtin.command: dnf clean all
+      changed_when: false
+
+
+- name: "Uninstall SAP HANA from hana hosts"
+  hosts: "{{ group_hana | d('hanas') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    sap_hana_sid: "{{ sap_hana_sid | d('RHE') }}"
+
+  tasks:
+
+    - name: Stop HANA instance
+      ansible.builtin.shell: |
+        su - {{ sap_hana_sid | lower }}adm -c "HDB stop" 2>/dev/null || true
+      changed_when: false
+      ignore_errors: true
+
+    - name: Uninstall HANA via hdblcm
+      ansible.builtin.shell: |
+        HDBLCM=$(find /hana/shared/{{ sap_hana_sid }}/hdblcm -name hdblcm 2>/dev/null | head -1)
+        if [ -n "$HDBLCM" ]; then
+          $HDBLCM --action=uninstall --sid={{ sap_hana_sid }} --batch \
+            --ignore=check_signature_file 2>&1
+        else
+          echo "hdblcm not found — HANA not installed, skipping"
+        fi
+      register: hdblcm_result
+      changed_when: "'uninstall' in hdblcm_result.stdout | lower"
+      ignore_errors: true
+
+    - name: Remove residual HANA directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/hana/shared/{{ sap_hana_sid }}"
+        - "/hana/data/{{ sap_hana_sid }}"
+        - "/hana/log/{{ sap_hana_sid }}"
+        - "/usr/sap/{{ sap_hana_sid }}"
+      ignore_errors: true
+
+    - name: Remove HANA system users
+      ansible.builtin.user:
+        name: "{{ item }}"
+        state: absent
+        remove: true
+        force: true
+      loop:
+        - "{{ sap_hana_sid | lower }}adm"
+        - "sapadm"
+      ignore_errors: true
+
+
+- name: "Uninstall S/4HANA from s4hana hosts"
+  hosts: "{{ group_nw | d('s4hanas') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    sap_nw_sid: "{{ sap_nw_sid | d('S4H') }}"
+
+  tasks:
+
+    - name: Stop SAP NetWeaver
+      ansible.builtin.shell: |
+        su - {{ sap_nw_sid | lower }}adm -c "stopsap" 2>/dev/null || true
+      changed_when: false
+      ignore_errors: true
+
+    - name: Remove residual NetWeaver directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/usr/sap/{{ sap_nw_sid }}"
+        - "/sapmnt/{{ sap_nw_sid }}"
+      ignore_errors: true
+
+    - name: Remove NetWeaver system users
+      ansible.builtin.user:
+        name: "{{ sap_nw_sid | lower }}adm"
+        state: absent
+        remove: true
+        force: true
+      ignore_errors: true
+
+
+- name: "Install kpatch-ready kernel on hana hosts and reboot"
+  hosts: "{{ group_hana | d('hanas') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    kpatch_target_kernel: "5.14.0-570.39.1.el9_6"
+
+  tasks:
+
+    - name: Install kernel {{ kpatch_target_kernel }}
+      ansible.builtin.dnf:
+        name: "kernel-{{ kpatch_target_kernel }}"
+        state: present
+
+    - name: Set {{ kpatch_target_kernel }} as grub default
+      ansible.builtin.command: >
+        grubby --set-default
+        /boot/vmlinuz-{{ kpatch_target_kernel }}.x86_64
+      changed_when: true
+
+    - name: Confirm grub default
+      ansible.builtin.command: grubby --default-kernel
+      register: grub_default
+      changed_when: false
+
+    - name: Show grub default
+      ansible.builtin.debug:
+        msg: "Grub default set to: {{ grub_default.stdout }}"
+
+    - name: Reboot into {{ kpatch_target_kernel }}
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+        post_reboot_delay: 30
+        msg: "Rebooting to install kpatch-ready kernel {{ kpatch_target_kernel }}"
+
+    - name: Confirm running kernel after reboot
+      ansible.builtin.command: uname -r
+      register: running_kernel
+      changed_when: false
+
+    - name: Assert correct kernel is running
+      ansible.builtin.assert:
+        that:
+          - kpatch_target_kernel in running_kernel.stdout
+        fail_msg: "Expected {{ kpatch_target_kernel }}, got {{ running_kernel.stdout }}"
+        success_msg: "PASS: Running {{ running_kernel.stdout }} — kpatch patches are available for this kernel"
