@@ -146,15 +146,28 @@
 
   tasks:
 
-    - name: Install kernel {{ kpatch_target_kernel }}
-      ansible.builtin.dnf:
-        name: "kernel-{{ kpatch_target_kernel }}"
-        state: present
+    - name: Install kernel {{ kpatch_target_kernel }} (baseos only — skip broken appstream)
+      ansible.builtin.command: >
+        dnf install -y
+        --disablerepo=rhel-9-for-x86_64-appstream-rpms
+        kernel-{{ kpatch_target_kernel }}
+      register: kernel_install
+      changed_when: "'Installing' in kernel_install.stdout"
+
+    - name: Find installed vmlinuz path
+      ansible.builtin.find:
+        paths: /boot
+        patterns: "vmlinuz-{{ kpatch_target_kernel }}*"
+      register: vmlinuz_find
+
+    - name: Fail if kernel not found in /boot
+      ansible.builtin.fail:
+        msg: "kernel {{ kpatch_target_kernel }} not found in /boot after install"
+      when: vmlinuz_find.files | length == 0
 
     - name: Set {{ kpatch_target_kernel }} as grub default
       ansible.builtin.command: >
-        grubby --set-default
-        /boot/vmlinuz-{{ kpatch_target_kernel }}.x86_64
+        grubby --set-default {{ vmlinuz_find.files[0].path }}
       changed_when: true
 
     - name: Confirm grub default
