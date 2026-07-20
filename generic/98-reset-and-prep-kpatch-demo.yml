@@ -21,6 +21,7 @@
   hosts: "{{ group_hana | d('hanas') }}:{{ group_nw | d('s4hanas') }}"
   become: true
   gather_facts: false
+  ignore_unreachable: true
 
   vars:
     kpatch_target_kernel: "5.14.0-570.39.1.el9_6"
@@ -60,6 +61,7 @@
   hosts: "{{ group_hana | d('hanas') }}"
   become: true
   gather_facts: true
+  ignore_unreachable: true
 
   vars:
     sap_hana_sid: "{{ sap_hana_sid | d('RHE') }}"
@@ -112,6 +114,7 @@
   hosts: "{{ group_nw | d('s4hanas') }}"
   become: true
   gather_facts: true
+  ignore_unreachable: true
 
   vars:
     sap_nw_sid: "{{ sap_nw_sid | d('S4H') }}"
@@ -146,16 +149,27 @@
   hosts: "{{ group_hana | d('hanas') }}"
   become: true
   gather_facts: true
+  ignore_unreachable: true
 
   vars:
     kpatch_target_kernel: "5.14.0-570.39.1.el9_6"
 
   tasks:
 
+    - name: Check currently running kernel
+      ansible.builtin.command: uname -r
+      register: running_kernel
+      changed_when: false
+
+    - name: Skip kernel prep — already on target kernel
+      ansible.builtin.meta: end_host
+      when: kpatch_target_kernel in running_kernel.stdout
+
     - name: Install kernel {{ kpatch_target_kernel }} (baseos only — skip broken appstream)
       ansible.builtin.command: >
         dnf install -y
         --disablerepo=rhel-9-for-x86_64-appstream-rpms
+        --setopt=sslcacert=/etc/rhsm/ca/redhat-uep.pem
         kernel-{{ kpatch_target_kernel }}
       register: kernel_install
       changed_when: "'Installing' in kernel_install.stdout"
@@ -187,8 +201,8 @@
 
     - name: Reboot into {{ kpatch_target_kernel }}
       ansible.builtin.reboot:
-        reboot_timeout: 300
-        post_reboot_delay: 30
+        reboot_timeout: 600
+        post_reboot_delay: 45
         msg: "Rebooting to install kpatch-ready kernel {{ kpatch_target_kernel }}"
 
     - name: Confirm running kernel after reboot
