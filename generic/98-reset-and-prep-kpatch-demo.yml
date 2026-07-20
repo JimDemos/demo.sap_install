@@ -161,58 +161,58 @@
       register: running_kernel
       changed_when: false
 
-    - name: Skip kernel prep — already on target kernel
-      ansible.builtin.meta: end_host
-      when: kpatch_target_kernel in running_kernel.stdout
+    - name: Kernel install + reboot (skip if already on target)
+      when: kpatch_target_kernel not in (running_kernel.stdout | default(''))
+      block:
 
-    - name: Install kernel {{ kpatch_target_kernel }} (baseos only — skip broken appstream)
-      ansible.builtin.command: >
-        dnf install -y
-        --disablerepo=rhel-9-for-x86_64-appstream-rpms
-        --setopt=sslcacert=/etc/rhsm/ca/redhat-uep.pem
-        kernel-{{ kpatch_target_kernel }}
-      register: kernel_install
-      changed_when: "'Installing' in kernel_install.stdout"
+        - name: Install kernel {{ kpatch_target_kernel }} (baseos only — skip broken appstream)
+          ansible.builtin.command: >
+            dnf install -y
+            --disablerepo=rhel-9-for-x86_64-appstream-rpms
+            --setopt=sslcacert=/etc/rhsm/ca/redhat-uep.pem
+            kernel-{{ kpatch_target_kernel }}
+          register: kernel_install
+          changed_when: "'Installing' in kernel_install.stdout"
 
-    - name: Find installed vmlinuz path
-      ansible.builtin.find:
-        paths: /boot
-        patterns: "vmlinuz-{{ kpatch_target_kernel }}*"
-      register: vmlinuz_find
+        - name: Find installed vmlinuz path
+          ansible.builtin.find:
+            paths: /boot
+            patterns: "vmlinuz-{{ kpatch_target_kernel }}*"
+          register: vmlinuz_find
 
-    - name: Fail if kernel not found in /boot
-      ansible.builtin.fail:
-        msg: "kernel {{ kpatch_target_kernel }} not found in /boot after install"
-      when: vmlinuz_find.files | length == 0
+        - name: Fail if kernel not found in /boot
+          ansible.builtin.fail:
+            msg: "kernel {{ kpatch_target_kernel }} not found in /boot after install"
+          when: vmlinuz_find.files | length == 0
 
-    - name: Set {{ kpatch_target_kernel }} as grub default
-      ansible.builtin.command: >
-        grubby --set-default {{ vmlinuz_find.files[0].path }}
-      changed_when: true
+        - name: Set {{ kpatch_target_kernel }} as grub default
+          ansible.builtin.command: >
+            grubby --set-default {{ vmlinuz_find.files[0].path }}
+          changed_when: true
 
-    - name: Confirm grub default
-      ansible.builtin.command: grubby --default-kernel
-      register: grub_default
-      changed_when: false
+        - name: Confirm grub default
+          ansible.builtin.command: grubby --default-kernel
+          register: grub_default
+          changed_when: false
 
-    - name: Show grub default
-      ansible.builtin.debug:
-        msg: "Grub default set to: {{ grub_default.stdout }}"
+        - name: Show grub default
+          ansible.builtin.debug:
+            msg: "Grub default set to: {{ grub_default.stdout }}"
 
-    - name: Reboot into {{ kpatch_target_kernel }}
-      ansible.builtin.reboot:
-        reboot_timeout: 600
-        post_reboot_delay: 45
-        msg: "Rebooting to install kpatch-ready kernel {{ kpatch_target_kernel }}"
+        - name: Reboot into {{ kpatch_target_kernel }}
+          ansible.builtin.reboot:
+            reboot_timeout: 600
+            post_reboot_delay: 45
+            msg: "Rebooting to install kpatch-ready kernel {{ kpatch_target_kernel }}"
 
-    - name: Confirm running kernel after reboot
+    - name: Confirm running kernel
       ansible.builtin.command: uname -r
-      register: running_kernel
+      register: final_kernel
       changed_when: false
 
     - name: Assert correct kernel is running
       ansible.builtin.assert:
         that:
-          - kpatch_target_kernel in running_kernel.stdout
-        fail_msg: "Expected {{ kpatch_target_kernel }}, got {{ running_kernel.stdout }}"
-        success_msg: "PASS: Running {{ running_kernel.stdout }} — kpatch patches are available for this kernel"
+          - kpatch_target_kernel in final_kernel.stdout
+        fail_msg: "Expected {{ kpatch_target_kernel }}, got {{ final_kernel.stdout }}"
+        success_msg: "PASS: Running {{ final_kernel.stdout }} — kpatch patches are available for this kernel"
