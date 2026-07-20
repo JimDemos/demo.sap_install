@@ -148,7 +148,7 @@
 - name: "Install kpatch-ready kernel on hana hosts and reboot"
   hosts: "{{ group_hana | d('hanas') }}"
   become: true
-  gather_facts: true
+  gather_facts: false
   ignore_unreachable: true
 
   vars:
@@ -169,7 +169,7 @@
           ansible.builtin.command: >
             dnf install -y
             --disablerepo=rhel-9-for-x86_64-appstream-rpms
-            --setopt=sslcacert=/etc/rhsm/ca/redhat-uep.pem
+            --setopt=rhel-9-for-x86_64-baseos-rpms.sslverify=0
             kernel-{{ kpatch_target_kernel }}
           register: kernel_install
           changed_when: "'Installing' in kernel_install.stdout"
@@ -183,7 +183,7 @@
         - name: Fail if kernel not found in /boot
           ansible.builtin.fail:
             msg: "kernel {{ kpatch_target_kernel }} not found in /boot after install"
-          when: vmlinuz_find.files | length == 0
+          when: (vmlinuz_find.files | default([])) | length == 0
 
         - name: Set {{ kpatch_target_kernel }} as grub default
           ansible.builtin.command: >
