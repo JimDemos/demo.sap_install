@@ -45,6 +45,12 @@
         name: rhel-9-for-x86_64-baseos-rpms
         state: enabled
 
+    - name: Fix sslcacert — CDN needs redhat-uep.pem, not katello CA
+      ansible.builtin.replace:
+        path: /etc/yum.repos.d/redhat.repo
+        regexp: 'sslcacert = /etc/rhsm/ca/katello-server-ca.pem'
+        replace: 'sslcacert = /etc/rhsm/ca/redhat-uep.pem'
+
     - name: Clean dnf metadata cache
       ansible.builtin.command: dnf clean all
       changed_when: false
