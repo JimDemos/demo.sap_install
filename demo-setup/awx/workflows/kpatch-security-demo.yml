@@ -1,0 +1,128 @@
+---
+# AAP Workflow Template: kpatch-security-demo
+#
+# Full oscap-before → kpatch-apply → oscap-after flow.
+# Produces a before/after compliance comparison with zero reboot.
+#
+# Load into AAP:
+#   ansible-playbook demo-setup/awx/load-workflow.yml \
+#     -e @demo-setup/awx/workflows/kpatch-security-demo.yml
+#
+# Survey variables:
+#   target_group:          hanas
+#   kpatch_oval_url:       (RHSA OVAL URL — see DESIGN.md)
+#   sap_hana_sid:          RHE (set blank if HANA not installed)
+#   kpatch_fail_if_none_loaded: true
+
+workflow_job_template:
+  name: "kpatch Security Demo — OSCAP Before/After"
+  description: >-
+    Demonstrates live kernel patching with compliance proof.
+    Runs OpenSCAP before, applies kpatch (no reboot), runs OpenSCAP after.
+    Before: FAIL. After: PASS. Kernel never changes. System never reboots.
+  organization: "Default"
+  inventory: "SAP Demo"
+  survey_enabled: true
+  survey_spec:
+    name: "kpatch Security Demo Configuration"
+    description: "Configure the demo target and OVAL content"
+    spec:
+      - question_name: "Target host group"
+        variable: target_group
+        type: text
+        default: hanas
+        required: false
+      - question_name: "kpatch OVAL URL"
+        question_description: "RHSA OVAL XML — see DESIGN.md for the correct URL"
+        variable: kpatch_oval_url
+        type: text
+        default: ""
+        required: true
+      - question_name: "HANA SID (leave blank if HANA not installed)"
+        variable: sap_hana_sid
+        type: text
+        default: "RHE"
+        required: false
+      - question_name: "Fail if no kpatch patches available?"
+        variable: kpatch_fail_if_none_loaded
+        type: multiplechoice
+        choices: "true\nfalse"
+        default: "true"
+        required: false
+
+  workflow_nodes:
+
+    # Step 1: Scan BEFORE
+    - identifier: oscap-before
+      unified_job_template:
+        name: "07 - OpenSCAP Scan"
+        type: job_template
+      extra_data:
+        scan_label: before
+      related:
+        success_nodes:
+          - apply-kpatch
+        failure_nodes:
+          - notify-failed
+
+    # Step 2: Apply kpatch
+    - identifier: apply-kpatch
+      unified_job_template:
+        name: "05 - Apply Live Kernel Patches"
+        type: job_template
+      related:
+        success_nodes:
+          - verify-kpatch
+        failure_nodes:
+          - notify-failed
+
+    # Step 3: Verify kpatch loaded (+ HANA if present)
+    - identifier: verify-kpatch
+      unified_job_template:
+        name: "06 - Verify kpatch + HANA"
+        type: job_template
+      related:
+        success_nodes:
+          - oscap-after
+        failure_nodes:
+          - notify-failed
+
+    # Step 4: Scan AFTER — this is the money shot
+    - identifier: oscap-after
+      unified_job_template:
+        name: "07 - OpenSCAP Scan"
+        type: job_template
+      extra_data:
+        scan_label: after
+      related:
+        failure_nodes:
+          - notify-failed
+
+    - identifier: notify-failed
+      unified_job_template:
+        name: "90 - Check Hosts"
+        type: job_template
+
+
+job_templates:
+
+  - name: "07 - OpenSCAP Scan"
+    job_type: run
+    inventory: "SAP Demo"
+    project: "SAP DEMO Project"
+    playbook: "generic/07-oscap-scan.yml"
+    execution_environment: "SAP EE"
+    ask_variables_on_launch: true
+    extra_vars:
+      target_group: hanas
+      scan_label: scan
+
+  - name: "08 - Reset kpatch Demo"
+    job_type: run
+    inventory: "SAP Demo"
+    project: "SAP DEMO Project"
+    playbook: "generic/08-reset-kpatch.yml"
+    execution_environment: "SAP EE"
+    ask_variables_on_launch: true
+    extra_vars:
+      target_group: hanas

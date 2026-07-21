@@ -1,0 +1,120 @@
+---
+# 07-oscap-scan.yml
+#
+# Run a targeted OpenSCAP OVAL scan and fetch the HTML report.
+# Use before AND after kpatch to produce the before/after comparison.
+#
+# The demo story: kpatch-patch RPM installation satisfies the OVAL check
+# for the advisory it covers. FAIL before install → PASS after install,
+# with the same kernel running and zero reboots.
+#
+# Idempotency: read + fetch only. Safe to run any time.
+#
+# Usage:
+#   # Before kpatch:
+#   ansible-playbook generic/07-oscap-scan.yml -e scan_label=before
+#
+#   # After kpatch:
+#   ansible-playbook generic/07-oscap-scan.yml -e scan_label=after
+#
+#   # Custom OVAL:
+#   ansible-playbook generic/07-oscap-scan.yml \
+#     -e scan_label=before \
+#     -e kpatch_oval_url=https://access.redhat.com/security/data/oval/v2/RHEL9/RHSA-2025-XXXX.oval.xml
+
+- name: "OpenSCAP OVAL scan — {{ scan_label | d('scan') }}"
+  hosts: "{{ target_group | d('hanas') }}"
+  become: true
+  gather_facts: false
+
+  vars:
+    scan_label: "scan"
+    # kpatch_oval_url: set via extra vars or AAP survey
+    # Falls back to the kpatch advisory OVAL for 570.39.1 if not set.
+    # Update this default when the kernel target changes.
+    # RHEL 9.6 EUS stream OVAL — covers RHSA-2025:15798 + RHSA-2026:16018
+    # CVEs: CVE-2025-38052, CVE-2025-38352, CVE-2026-31431
+    # OVAL checks kpatch-patch-5_14_0-570_39_1 RPM installation (not kernel version)
+    oval_url: "{{ kpatch_oval_url | d('https://security.access.redhat.com/data/oval/v2/RHEL9/rhel-9.6-eus.oval.xml.bz2') }}"
+    demo_report_dir: /tmp/oscap-demo
+    oval_local_bz2: "{{ demo_report_dir }}/rhel-9.6-eus.oval.xml.bz2"
+    oval_local: "{{ demo_report_dir }}/rhel-9.6-eus.oval.xml"
+
+  tasks:
+
+    - name: Install openscap-scanner
+      ansible.builtin.dnf:
+        name: openscap-scanner
+        state: present
+        disablerepo: rhel-9-for-x86_64-appstream-rpms
+
+    - name: Create report directory
+      ansible.builtin.file:
+        path: "{{ demo_report_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Install bzip2 (for OVAL decompression)
+      ansible.builtin.dnf:
+        name: bzip2
+        state: present
+        disablerepo: rhel-9-for-x86_64-appstream-rpms
+
+    - name: Download OVAL content (RHEL 9.6 EUS stream)
+      ansible.builtin.get_url:
+        url: "{{ oval_url }}"
+        dest: "{{ oval_local_bz2 }}"
+        validate_certs: true
+        timeout: 120
+      register: oval_download
+
+    - name: Decompress OVAL content
+      ansible.builtin.command: >
+        bunzip2 -kf {{ oval_local_bz2 }}
+      changed_when: oval_download.changed
+
+    - name: Run OpenSCAP OVAL eval
+      ansible.builtin.command: >
+        oscap oval eval
+          --results {{ demo_report_dir }}/results-{{ scan_label }}.xml
+          --report  {{ demo_report_dir }}/report-{{ scan_label }}.html
+          {{ oval_local }}
+      register: oscap_out
+      changed_when: false
+      failed_when: oscap_out.rc > 2
+
+    - name: Count pass/fail results
+      ansible.builtin.shell: |
+        python3 - <<'EOF'
+        import xml.etree.ElementTree as ET
+        tree = ET.parse('{{ demo_report_dir }}/results-{{ scan_label }}.xml')
+        ns = {'oval': 'http://oval.mitre.org/XMLSchema/oval-results-5'}
+        results = {}
+        for r in tree.findall('.//oval:definition', ns):
+            result = r.attrib.get('result', 'unknown')
+            results[result] = results.get(result, 0) + 1
+        for k, v in sorted(results.items()):
+            print(f'{k}: {v}')
+        EOF
+      register: result_counts
+      changed_when: false
+      ignore_errors: true
+
+    - name: Scan summary
+      ansible.builtin.debug:
+        msg:
+          - "══════════════════════════════════════"
+          - "  OpenSCAP OVAL — {{ scan_label | upper }}"
+          - "══════════════════════════════════════"
+          - "  Host:   {{ inventory_hostname }}"
+          - "  Kernel: {{ ansible_kernel | d('(gather_facts disabled)') }}"
+          - "  Label:  {{ scan_label }}"
+          - "  Results:"
+          - "{{ result_counts.stdout_lines | default(['  (parse failed — see raw XML)']) }}"
+          - "══════════════════════════════════════"
+
+    - name: Fetch HTML report to controller
+      ansible.builtin.fetch:
+        src: "{{ demo_report_dir }}/report-{{ scan_label }}.html"
+        dest: "/tmp/oscap-demo/{{ inventory_hostname }}-report-{{ scan_label }}.html"
+        flat: true

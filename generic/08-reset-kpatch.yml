@@ -1,0 +1,68 @@
+---
+# 08-reset-kpatch.yml
+#
+# Remove kpatch packages — resets demo host to pre-kpatch state.
+# Does NOT reboot or change kernel. Running patches are unloaded
+# by stopping the kpatch service; they will not reload on next boot.
+#
+# Run this between demo runs to reset the before/after comparison.
+# The OpenSCAP scan (07-oscap-scan.yml) will show FAIL again after reset.
+#
+# Idempotency: safe to run on hosts that never had kpatch installed.
+#
+# Usage:
+#   ansible-playbook generic/08-reset-kpatch.yml
+#   ansible-playbook generic/08-reset-kpatch.yml -e target_group=hanas
+
+- name: "Reset kpatch demo — remove packages, unload patches"
+  hosts: "{{ target_group | d('hanas') }}"
+  become: true
+  gather_facts: false
+
+  tasks:
+
+    - name: Stop and disable kpatch service
+      ansible.builtin.systemd:
+        name: kpatch
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove kpatch packages
+      ansible.builtin.dnf:
+        name:
+          - kpatch
+          - kpatch-dnf
+          - "kpatch-patch-*"
+        state: absent
+
+    - name: Confirm no kpatch modules in running kernel
+      ansible.builtin.shell: lsmod | grep -c '^kpatch_' || true
+      register: kpatch_modules
+      changed_when: false
+
+    - name: Confirm running kernel (should be unchanged)
+      ansible.builtin.command: uname -r
+      register: kernel_check
+      changed_when: false
+
+    - name: Reset summary
+      ansible.builtin.debug:
+        msg:
+          - "══════════════════════════════════════"
+          - "  kpatch DEMO RESET — COMPLETE"
+          - "══════════════════════════════════════"
+          - "  Host:            {{ inventory_hostname }}"
+          - "  Kernel:          {{ kernel_check.stdout }}"
+          - "  kpatch modules:  {{ kpatch_modules.stdout | int }} loaded"
+          - "  Status:          Ready for next demo run"
+          - "  Next step:       Run 07-oscap-scan.yml -e scan_label=before"
+          - "══════════════════════════════════════"
+
+    - name: Warn if kpatch modules still loaded
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: {{ kpatch_modules.stdout }} kpatch module(s) still in kernel memory.
+          This is cosmetic — they will not reload on next boot.
+          Reboot now if you need a fully clean state for the demo.
+      when: (kpatch_modules.stdout | int) > 0
