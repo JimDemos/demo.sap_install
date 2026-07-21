@@ -81,6 +81,13 @@ The kpatch-patch RPM is the installable artifact for the advisory. The OVAL
 definition checks whether that RPM is installed. Before kpatch: FAIL.
 After kpatch install (no reboot): PASS. That's the proof.
 
+kpatch patches are cumulative per kernel slot — each new kpatch-patch build
+for a slot includes all prior patches. Install once, all CVEs in the slot
+are covered.
+
+The RHEL 9.6 EUS OVAL file is ~1MB compressed (verified 2026-07-21).
+Download time is negligible on any cloud VM.
+
 ### Decision 5: Modular playbook structure
 
 **What:** Each capability is an independent, parameterized playbook.
