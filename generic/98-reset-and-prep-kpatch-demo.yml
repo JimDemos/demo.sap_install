@@ -169,7 +169,8 @@
           ansible.builtin.command: >
             dnf install -y
             --disablerepo=rhel-9-for-x86_64-appstream-rpms
-            --setopt=rhel-9-for-x86_64-baseos-rpms.sslverify=0
+            --setopt=sslverify=0
+            --disableplugin=subscription-manager
             kernel-{{ kpatch_target_kernel }}
           register: kernel_install
           changed_when: "'Installing' in kernel_install.stdout"
@@ -183,7 +184,9 @@
         - name: Fail if kernel not found in /boot
           ansible.builtin.fail:
             msg: "kernel {{ kpatch_target_kernel }} not found in /boot after install"
-          when: (vmlinuz_find.files | default([])) | length == 0
+          when:
+            - vmlinuz_find.files is defined
+            - vmlinuz_find.files | length == 0
 
         - name: Set {{ kpatch_target_kernel }} as grub default
           ansible.builtin.command: >
@@ -216,3 +219,4 @@
           - kpatch_target_kernel in final_kernel.stdout
         fail_msg: "Expected {{ kpatch_target_kernel }}, got {{ final_kernel.stdout }}"
         success_msg: "PASS: Running {{ final_kernel.stdout }} — kpatch patches are available for this kernel"
+      when: final_kernel.stdout is defined
